@@ -47,7 +47,19 @@ fx login grok
 fx
 ```
 
-`fx login codex` and `fx login grok` select that provider and a model from its authenticated catalog. Inside fx, run `/provider` (alias `/setup`) to move between Gateway, Codex, and Grok: Enter on a subscription provider switches to it or starts its sign-in, and `vercel` opens further columns for the sign-in method, the API key to use, and the Vercel team. `/model` lists the active provider's fetched models. Ctrl+P opens the same list while you are composing: your draft and cursor stay untouched, Enter uses the highlighted model, and Esc, Ctrl+C, Ctrl+D, or Ctrl+P closes the list and returns to your draft. Subscription model IDs are the raw IDs returned by each authenticated catalog. Model discovery continues when its local version cache is unusable. Use `/logout codex` or `/logout grok` to remove that subscription session. Logging out of the active subscription switches to an already-connected provider, preferring Gateway and then the other subscription. If none is usable, fx stays signed out. Logging out of an inactive subscription keeps the active provider unchanged. Active subscription logout is unavailable while work is active or queued; choosing the provider again from `/provider` starts sign-in.
+Or use a Google Gemini API key directly:
+
+```bash
+export GEMINI_API_KEY="your-google-api-key"
+fx login gemini
+fx
+```
+
+The native Gemini provider sends requests directly to Google. It does not use Vercel AI Gateway. `fx login gemini` checks the key through Google's model catalog and selects a model. Use `/provider gemini` to switch in the terminal, and `/model` to choose a model from that catalog. Gemini also works with `fx ask` and ACP. The key stays in the environment; fx does not save it. To remove access, unset `GEMINI_API_KEY` and restart fx. `/logout gemini` shows these instructions.
+
+Gemini uses Google's Interactions API with streaming text, function tools, image input, and local conversation state. Saved Gemini conversations retain the opaque thought signatures needed for tool results. Token usage is reported when Google supplies it; dollar cost remains unknown. Gemini sessions use local titles derived from the opening prompt. Switching a conversation with tool calls from another provider to Gemini requires a new session.
+
+`fx login codex` and `fx login grok` select that provider and a model from its authenticated catalog. Inside fx, run `/provider` (alias `/setup`) to move between Gateway, Codex, Grok, and Gemini: Enter on a subscription provider switches to it or starts its sign-in, and `vercel` opens further columns for the sign-in method, the API key to use, and the Vercel team. `/model` lists the active provider's fetched models. Ctrl+P opens the same list while you are composing: your draft and cursor stay untouched, Enter uses the highlighted model, and Esc, Ctrl+C, Ctrl+D, or Ctrl+P closes the list and returns to your draft. Subscription model IDs are the raw IDs returned by each authenticated catalog. Model discovery continues when its local version cache is unusable. Use `/logout codex` or `/logout grok` to remove that subscription session. Logging out of the active subscription switches to an already-connected provider, preferring Gateway and then the other subscription. If none is usable, fx stays signed out. Logging out of an inactive subscription keeps the active provider unchanged. Active subscription logout is unavailable while work is active or queued; choosing the provider again from `/provider` starts sign-in.
 
 If a saved credential cannot be checked, `/login`, `/provider`, and `/setup` still open and identify the unavailable source. You can type the provider name immediately after Enter; credential checks preserve your input and keep choices unavailable until checking finishes. Provider and team preparation also keeps typing and cancellation responsive while its catalog loads. Ctrl+C cancels preparation without changing the current provider. A prompt submitted during preparation waits for the selected provider; if preparation fails, the prompt stays pending for explicit recovery. While responses are active or queued, these commands immediately explain that provider switching is unavailable. Other credentials remain usable. Fix the saved credential and reopen `/provider` to retry. Storage or connection failures do not start another sign-in, and browser authorization reports success only after the new credential is saved.
 
@@ -65,7 +77,7 @@ To use an AI Gateway API key instead:
 fx setup
 ```
 
-Embedding hosts that inject provider authentication at the network boundary can set `FX_AUTH_MODE=host-managed`. In this mode, fx does not read, refresh, or write local model-provider credentials and does not add authentication-owned headers to Gateway, Codex, or Grok requests. The host must authenticate those forwarded requests.
+Embedding hosts that inject provider authentication at the network boundary can set `FX_AUTH_MODE=host-managed`. In this mode, fx does not read, refresh, or write local model-provider credentials and does not add authentication-owned headers to Gateway, Codex, Grok, or Gemini requests. The host must authenticate those forwarded requests.
 
 Run fx from a project:
 
