@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runFx } from "../evals/eval-helpers";
@@ -38,7 +38,7 @@ function stream(steps: Array<Record<string, any>>, status = "completed"): Respon
 }
 
 function fixture(reply: (body: RequestBody) => Response = () => stream([{ type: "model_output", text: "GEMINI_DIRECT_OK" }])) {
-  const root = mkdtempSync(join(tmpdir(), "fx-gemini-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "fx-gemini-")));
   const home = join(root, "home");
   const workspace = join(root, "workspace");
   mkdirSync(home);
