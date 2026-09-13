@@ -51,7 +51,6 @@ pub const default_max_read_file_lines: usize = 400;
 pub const default_max_read_file_line_len: usize = 2000;
 
 pub const web_search_unavailable_message = "web_search is unavailable: no local runtime with a configured Gateway transport policy is installed";
-pub const web_fetch_unavailable_message = "web_fetch is unavailable: no local WebFetch runtime is installed";
 pub const terminal_unavailable_message =
     "{\"error\":{\"tool\":\"shell\",\"code\":\"unsupported_host\",\"retryable\":false}}";
 const terminal_saved_session_required_message =
@@ -267,7 +266,6 @@ pub const DispatchContext = struct {
     skill_locations: ?*const skill_contract.Locations = null,
     resolved_skill: ?*const skill_contract.PreparedSkill = null,
     context_limits: context_limits.Values = .{},
-    permission_ctx: ?*const PermissionContext = null,
     read_tracker: ?*read_tracker_mod.ReadTracker = null,
     change_tracker: ?*change_tracker.ChangeTracker = null,
     cancel_flag: ?*std.atomic.Value(bool) = null,
@@ -335,22 +333,6 @@ pub const AskQuestionBatchFn = *const fn (
 
 /// Function pointer used to override permission decisions in tests and callers.
 pub const PermissionDecider = *const fn (*const Tool, ToolInput, DispatchContext) permission_gate.Decision;
-
-/// Rule-engine lookup function carried through dispatch for test injection.
-pub const PermissionRuleLookup = *const fn (
-    Allocator,
-    core_types.PermissionRuleSet,
-    []const u8,
-    []const u8,
-    []const u8,
-    PermissionTargetKind,
-) anyerror!core_permissions.RuleDecision;
-
-/// Permission state shared by a noninteractive turn.
-pub const PermissionContext = struct {
-    rules: ?*const core_types.PermissionRuleSet = null,
-    rule_lookup: PermissionRuleLookup = core_permissions.ruleDecisionFor,
-};
 
 /// Function pointer that decodes JSON arguments into a concrete input.
 pub const DecodeFn = *const fn (DispatchContext, []const u8) DispatchError!DecodeResult;
