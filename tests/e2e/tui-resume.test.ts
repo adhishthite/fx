@@ -348,6 +348,95 @@ test.skipIf(!tmuxAvailable())("suspended sessions retain exclusive writer owners
   }
 }, TIMEOUT * 3);
 
+test.skipIf(!tmuxAvailable())(
+  "resume publication preserves history from a low native cursor",
+  async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "fx-resume-origin-")));
+    const home = join(root, "home");
+    const workspace = join(root, "workspace");
+    const launchReady = join(root, "launch-ready");
+    const launchGate = join(root, "launch-gate");
+    const stderrPath = join(root, "stderr.log");
+    const tapePath = join(root, "resume.fxtape");
+    mkdirSync(join(home, ".fx"), { recursive: true });
+    mkdirSync(workspace);
+    writeFileSync(join(home, ".fx", "settings.json"), JSON.stringify({ startup_scrollback: false }));
+    const labels = Array.from({ length: 67 }, (_, i) => `RESUME_ROW_${String(i).padStart(3, "0")}`);
+    const gateway = startFakeGateway([
+      fakeGatewayFinalText(labels.join("\n\n")),
+      fakeGatewayFinalText("AFTER_RESUME_INTERACTION"),
+    ]);
+    const env = {
+      ...gatewayEnv(home, gateway),
+      FX_SOUND: "0",
+      FX_DISABLE_KEYCHAIN: "1",
+      FX_E2E_DISABLE_DOTENV: "1",
+    };
+    let active: TmuxSession | undefined;
+    const expectPublishedRows = (capture: string) => {
+      const rows = stripAnsi(capture).split("\n");
+      const published = rows.flatMap((text, row) =>
+        [...text.matchAll(/RESUME_ROW_\d{3}/g)].map(([label]) => ({ label, row }))
+      );
+      expect(published.map(({ label }) => label)).toEqual(labels);
+      const prior = rows.flatMap(text => [...text.matchAll(/PRIOR_\d{3}/g)].map(([label]) => label));
+      expect(prior).toEqual(Array.from({ length: 66 }, (_, i) => `PRIOR_${String(i + 1).padStart(3, "0")}`));
+      expect(rows.findIndex(text => text.includes("PRIOR_066"))).toBeLessThan(published[0]!.row);
+      for (let i = 1; i < published.length; i++) {
+        expect(published[i]!.row - published[i - 1]!.row).toBe(2);
+        expect(rows[published[i]!.row - 1]!.trim()).toBe("");
+      }
+    };
+    try {
+      const seeded = await runFx(["ask", "--json", "Seed the prepared transcript without tools."], {
+        cwd: workspace, env, timeoutMs: TIMEOUT,
+      });
+      expect(seeded.code).toBe(0);
+      expect(seeded.stderr).toBe("");
+      const id = sessionIdFromHome(home);
+      const eventsPath = join(home, ".fx", "sessions", id, "events.jsonl");
+      const events = readFileSync(eventsPath, "utf8");
+      for (const label of labels) expect(events).toContain(label);
+
+      // Pause after real terminal output, with no synthetic cursor response.
+      const launch = `printf '\\033[2J\\033[H'; i=1; while [ "$i" -le 66 ]; do printf 'PRIOR_%03d\\n' "$i"; i=$((i+1)); done; : > ${shellQuote(launchReady)}; while [ ! -f ${shellQuote(launchGate)} ]; do sleep 0.02; done; exec ${shellQuote(FX_BIN)} --resume ${shellQuote(id)}`;
+      active = await TmuxSession.create({
+        cmd: `/bin/sh -c ${shellQuote(launch)}`,
+        cwd: workspace,
+        env: { ...env, FX_RECORD: tapePath },
+        width: 168, height: 75, isolated: true, remainOnExit: true,
+        stderrPath,
+      });
+      await waitForCondition(() => existsSync(launchReady), "native resume launch gate");
+      expect(active.cursorPosition()).toEqual({ row: 66, col: 0 });
+      writeFileSync(launchGate, "");
+      await waitForScrollbackMarkers(active, labels);
+      await active.waitForStableComposer(TIMEOUT);
+      expectPublishedRows(await active.captureFullScrollbackEscapes());
+      expect(await active.capturePane()).not.toContain(labels[0]!);
+
+      await active.sendText("Continue with the prepared follow-up.");
+      await active.waitForText("AFTER_RESUME_INTERACTION", TIMEOUT);
+      await active.waitForStableComposer(TIMEOUT);
+      expectPublishedRows(await active.captureFullScrollbackEscapes());
+      await waitForPersistedSessionMarker(home, "AFTER_RESUME_INTERACTION");
+      expect(gateway.requests).toHaveLength(2);
+      await active.sendText("/quit");
+      await waitForCondition(() => !active!.isPaneAlive(), "clean resume exit");
+      expect(active.paneStatus()).toEqual({ dead: true, status: 0 });
+      expect(readFileSync(stderrPath, "utf8")).toBe("");
+      const replay = await runFx(["replay", tapePath, "--json"], { cwd: workspace, env, timeoutMs: TIMEOUT });
+      expect(replay.code).toBe(0);
+      expect(replay.stderr).toBe("");
+    } finally {
+      await active?.kill();
+      gateway.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+  TIMEOUT * 2,
+);
+
 async function waitForSessionPicker(session: TmuxSession): Promise<string> {
   return session.waitForPane(
     (pane) => {
@@ -1027,7 +1116,7 @@ test.skipIf(!tmuxAvailable())(
         });
         const resumed = await waitForScrollbackMarkers(
           active,
-          [`● Session resumed: ${title}`, marker],
+          [`* session resumed: ${title}`, marker],
           TIMEOUT,
         );
         expect(resumed).toContain(marker);
@@ -4377,7 +4466,7 @@ test.skipIf(!tmuxAvailable())(
 
       await contender.sendKeys("Enter");
       const resumed = await waitForScrollback(contender, savedMarker);
-      expect(resumed).toContain(`● Session resumed: ${savedTitle}`);
+      expect(resumed).toContain(`* session resumed: ${savedTitle}`);
       expect(resumed).toContain(savedMarker);
       expect(resumed).not.toContain("SessionBusy");
       await waitForSessionPickerClosed(contender);
@@ -5386,7 +5475,7 @@ test.skipIf(!tmuxAvailable())(
       const version = (await runFx(["--version"])).stdout.trim();
       await active.sendHexBytes(["07"]);
 
-      const updatedNotice = `● fx has been updated to v${version} (notes)`;
+      const updatedNotice = `✓ fx has been updated to v${version} (notes)`;
       await active.waitForText(updatedNotice, TIMEOUT);
       await active.waitForComposer(TIMEOUT);
       const postUpgradeTrace = readFileSync(tracePath, "utf8");
@@ -5401,8 +5490,8 @@ test.skipIf(!tmuxAvailable())(
         `(\x1b[4m\x1b]8;;https://fx.sh/changelog#v${version}\x1b\\notes\x1b[0m`,
       );
       expect(noticeEscapes).toContain("\x1b]8;;\x1b\\)");
-      expect(resumed).not.toContain("● Session resumed:");
-      expect(resumed).not.toContain("● Session: resumed:");
+      expect(resumed).not.toContain("* session resumed:");
+      expect(resumed).not.toMatch(/[*✓!✗⊘i] session: resumed:/);
 
       const argvLines = readFileSync(argvLogPath, "utf8").trim().split("\n");
       expect(argvLines).toEqual([
@@ -6020,7 +6109,7 @@ test.skipIf(!tmuxAvailable())(
       }
       await active.sendKeys("Enter");
       const resumed = await waitForScrollback(active, workspaceBMarker);
-      expect(resumed).toContain("● Session resumed: Save the workspace B transcript.");
+      expect(resumed).toContain("* session resumed: Save the workspace B transcript.");
       expect(resumed).toContain(workspaceBMarker);
       expect(resumed).not.toContain(workspaceAMarker);
       expect(active.isPaneAlive()).toBe(true);
@@ -6332,7 +6421,7 @@ test.skipIf(!tmuxAvailable())(
       );
       await active.sendKeys("Enter");
       const resumed = await waitForSessionPickerClosed(active);
-      expect(resumed).toContain(`● Session resumed: Save ${savedMarkers[0]!}.`);
+      expect(resumed).toContain(`* session resumed: Save ${savedMarkers[0]!}.`);
       expect(resumed).toContain(savedMarkers[0]!);
 
       await active.sendText("/resume");
@@ -6340,10 +6429,10 @@ test.skipIf(!tmuxAvailable())(
       await active.sendKeys("Escape");
       const afterEscape = await waitForSessionPickerClosed(active);
       expect(await active.captureFullScrollback()).toContain(
-        `● Session resumed: Save ${savedMarkers[0]!}.`,
+        `* session resumed: Save ${savedMarkers[0]!}.`,
       );
       expect(afterEscape).toContain(savedMarkers[0]!);
-      expect(afterEscape).not.toContain(`● Session resumed: Save ${savedMarkers[10]!}.`);
+      expect(afterEscape).not.toContain(`* session resumed: Save ${savedMarkers[10]!}.`);
       expect(afterEscape).not.toContain(savedMarkers[10]!);
 
       await active.sendText("/resume");
@@ -6359,7 +6448,7 @@ test.skipIf(!tmuxAvailable())(
       );
       await active.sendKeys("Enter");
       const secondResume = await waitForSessionPickerClosed(active);
-      expect(secondResume).toContain(`● Session resumed: Save ${savedMarkers[10]!}.`);
+      expect(secondResume).toContain(`* session resumed: Save ${savedMarkers[10]!}.`);
       expect(active.isPaneAlive()).toBe(true);
       expect(readFileSync(stderrPath, "utf8")).toBe("");
 
@@ -6824,7 +6913,7 @@ test.skipIf(!tmuxAvailable())(
       expect(cancelledIndex).toBeGreaterThanOrEqual(0);
       expect(resumed).toContain("■ Cancelled");
       expect(countOccurrences(resumed, "What can fx do differently?")).toBe(1);
-      expect(resumed).not.toContain("System: cancelled");
+      expect(resumed).not.toContain("system: cancelled");
       expect(resumed).not.toContain("Cancelling");
       expect(resumed).not.toContain("Interrupted by user after completing");
       expect(resumed).not.toContain("<turn_aborted>");

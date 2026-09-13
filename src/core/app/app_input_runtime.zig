@@ -87,7 +87,6 @@ const ToolPermissionDecision = types.ToolPermissionDecision;
 
 pub const file_picker_completion_cap = input_completion_runtime.file_picker_completion_cap;
 const ctrl_g_upgrade_byte: u8 = 7;
-const ctrl_x_manager_byte: u8 = 24;
 
 fn classifyResumeFailure(err: anyerror) session_catalog.ResumeFailure {
     return switch (err) {
@@ -2786,9 +2785,9 @@ pub fn Runtime(comptime App: type) type {
                 .none => return false,
                 .invalid => {
                     try app.writeDomainNotice(.{
-                        .topic = "model",
+                        .topic = "",
                         .tone = .@"error",
-                        .body = "Invalid /model selection. Use /model <id> <effort> [normal|fast].",
+                        .body = "usage: /model <id> <effort> [normal|fast]",
                     }, true);
                 },
                 .selection => |selection| {
@@ -3433,10 +3432,6 @@ const RoutingSubagents = struct {
     active: bool = false,
     main_approval_presented: bool = false,
     handled_keys: usize = 0,
-    handled_raw_keys: usize = 0,
-    handled_actions: usize = 0,
-    last_handled_key: ?u8 = null,
-    last_main_approval_id: ?u64 = null,
     toggle_view_calls: usize = 0,
     manager_paste: core_input_runtime.Runtime = .{},
 
@@ -4006,13 +4001,13 @@ const RoutingFakeApp = struct {
         self.notice_tone = notice.tone;
         self.notice_visibility = notice.visibility;
         const rendered = if (notice.topic.len > 0)
-            try std.fmt.allocPrint(self.alloc, "● {c}{s}: {s}", .{
-                std.ascii.toUpper(notice.topic[0]),
-                notice.topic[1..],
+            try std.fmt.allocPrint(self.alloc, "{s} {s}: {s}", .{
+                types.noticeGlyph(notice.tone),
+                notice.topic,
                 notice.body,
             })
         else
-            try std.fmt.allocPrint(self.alloc, "● {s}", .{notice.body});
+            try std.fmt.allocPrint(self.alloc, "{s} {s}", .{ types.noticeGlyph(notice.tone), notice.body });
         defer self.alloc.free(rendered);
         try self.transcript.appendSlice(self.alloc, rendered);
     }
